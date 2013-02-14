@@ -6,12 +6,9 @@
 
 namespace LightProxy
 {
-    using System;
-    using System.Collections;
+    using System;    
     using System.Collections.Concurrent;
-    using System.Collections.Generic;
-    using System.Data;
-    using System.Diagnostics.CodeAnalysis;
+    using System.Collections.Generic;    
     using System.IO;
     using System.Linq;
     using System.Reflection;
@@ -52,6 +49,18 @@ namespace LightProxy
         /// </summary>
         /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
         /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
+        /// <param name="methodSelector">A function delegate that determines which methods 
+        /// from the <paramref name="baseType"/> to proxy.</param>
+        /// <returns>A proxy type that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.</returns>
+        Type GetProxyType(Type baseType, Type[] interfaces, Func<MethodInfo, bool> methodSelector);
+
+        /// <summary>
+        /// Gets a proxy <see cref="Type"/> that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.
+        /// </summary>
+        /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
+        /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
         /// <param name="targetFactory">A function delegate use to create the target instance.</param>
         /// <returns>A proxy type that implements the <paramref name="baseType"/> along with the 
         /// additional list of <paramref name="interfaces"/>.</returns>
@@ -79,6 +88,20 @@ namespace LightProxy
         /// <returns>A new object that implements the <paramref name="baseType"/> along with the 
         /// additional list of <paramref name="interfaces"/>.</returns>
         object CreateProxy(Type baseType, Type[] interfaces, object target, IInterceptor interceptor);
+
+        /// <summary>
+        /// Creates a proxy object that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.
+        /// </summary>
+        /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
+        /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
+        /// <param name="target">The target object to proxy.</param>
+        /// <param name="interceptor">The <see cref="IInterceptor"/> used to intercept method calls.</param>
+        /// <param name="methodSelector">A function delegate that determines which methods 
+        /// from the <paramref name="baseType"/> to proxy.</param>
+        /// <returns>A new object that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.</returns>
+        object CreateProxy(Type baseType, Type[] interfaces, object target, IInterceptor interceptor, Func<MethodInfo, bool> methodSelector);
     }
 
     /// <summary>
@@ -161,7 +184,7 @@ namespace LightProxy
 
     public static class DelegateBuilder
     {
-        private static MethodInvoker invoker;
+        private static MethodInvoker invoker = new MethodInvoker(() => new DynamicMethodSkeleton());
 
         public static Func<object, object[], object> CreateDelegate(MethodInfo methodInfo)
         {
@@ -322,7 +345,7 @@ namespace LightProxy
     /// <summary>
     /// Contains information about the current method invocation.
     /// </summary>
-    public class InvocationInfo
+    public struct InvocationInfo
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="InvocationInfo"/> class.
@@ -331,7 +354,8 @@ namespace LightProxy
         /// <param name="target">The target object currently being invoked.</param>
         /// <param name="arguments">The arguments currently being passed to the target method.</param>
         /// <param name="proceed">The function delegate use to invoke the target method.</param>
-        public InvocationInfo(MethodInfo method, object target, object[] arguments, Func<object, object[], object> proceed)
+        public InvocationInfo(MethodInfo method, Func<object, object[], object> proceed, object target, object[] arguments)
+            : this()
         {
             Method = method;
             Target = target;
@@ -363,36 +387,57 @@ namespace LightProxy
     /// <summary>
     /// Contains information about the method being intercepted.
     /// </summary>
-    internal class DelegateInfo
+    public class DelegateInfo
     {
-        internal Lazy<Func<object, object[], object>> ProceedDelegate;
+        public Lazy<Func<object, object[], object>> ProceedDelegate;
         
-        internal MethodInfo Method;
+        public MethodInfo Method;
         
         /// <summary>
         /// Initializes a new instance of the <see cref="InvocationInfo"/> class.
         /// </summary>
         /// <param name="method">The target <see cref="MethodInfo"/> being intercepted.</param>
-        internal DelegateInfo(MethodInfo method)
+        public DelegateInfo(MethodInfo method)
         {
             ProceedDelegate = new Lazy<Func<object, object[], object>>(() => DelegateBuilder.CreateDelegate(method));
             Method = method;
         }                
     }
 
-    internal static class DelegateInfoCache
+    public class DelegateInfoCache
     {
-        private static readonly ConcurrentDictionary<Type[], DelegateInfo> Cache 
-            = new ConcurrentDictionary<Type[], DelegateInfo>(new TypeArrayComparer());
-        
-        public static DelegateInfo GetDelegateInfo(Type[] types, MethodInfo targetMethod)
+        private readonly MethodInfo openGenericMethod;
+
+        private readonly Dictionary<Type[], DelegateInfo> cache = 
+            new Dictionary<Type[], DelegateInfo>(new TypeArrayComparer());
+
+        private readonly object lockObject = new object();
+
+        public DelegateInfoCache(MethodInfo openGenericMethod)
         {
-            return Cache.GetOrAdd(types, t => CreateInterceptedMethodInfo(types, targetMethod));
+            this.openGenericMethod = openGenericMethod;
         }
 
-        private static DelegateInfo CreateInterceptedMethodInfo(Type[] types, MethodInfo targetMethod)
+        public DelegateInfo GetDelegateInfo(Type[] types)
+        {          
+            DelegateInfo delegateInfo;
+            if (!cache.TryGetValue(types, out delegateInfo))
+            {
+                lock (lockObject)
+                {
+                    if (!cache.TryGetValue(types, out delegateInfo))
+                    {
+                        delegateInfo = CreateDelegateInfo(types);
+                        cache.Add(types, delegateInfo);
+                    }
+                }
+            }         
+            return delegateInfo;
+        }
+
+        private DelegateInfo CreateDelegateInfo(Type[] types)
         {
-            var closedGenericMethod = targetMethod.MakeGenericMethod(types);            
+            var closedGenericMethod = openGenericMethod.MakeGenericMethod(types);            
             return new DelegateInfo(closedGenericMethod);
         }
     }
@@ -432,6 +477,17 @@ namespace LightProxy
         public object CreateProxy(Type baseType, Type[] interfaces, object target, IInterceptor interceptor)
         {
             Type proxyType = proxyBuilder.GetProxyType(baseType, interfaces);
+            return CreateProxyInstance(target, interceptor, proxyType);
+        }
+       
+        public object CreateProxy(Type baseType, Type[] interfaces, object target, IInterceptor interceptor, Func<MethodInfo, bool> methodSelector)
+        {
+            Type proxyType = proxyBuilder.GetProxyType(baseType, interfaces, methodSelector);
+            return CreateProxyInstance(target, interceptor, proxyType);
+        }
+
+        private static object CreateProxyInstance(object target, IInterceptor interceptor, Type proxyType)
+        {
             var proxy = (IProxy)Activator.CreateInstance(proxyType);
             proxy.Target = target;
             proxy.Interceptor = interceptor;
@@ -451,11 +507,15 @@ namespace LightProxy
         private static readonly MethodInfo SetInterceptorMethod;
         private static readonly MethodInfo GetMethodFromHandleMethod;
         private static readonly ConstructorInfo InvocationInfoConstructor;
-        private static readonly ConstructorInfo DelegateInfoConstructor;        
+        private static readonly ConstructorInfo DelegateInfoConstructor;
+        private static readonly ConstructorInfo DelegateInfoCacheConstructor;
         private static readonly FieldInfo ProceedDelegateField;
         private static readonly FieldInfo MethodField;
-
+        private static readonly MethodInfo GetTypeFromHandleMethod;
         private static readonly MethodInfo LazyGetValueMethod;
+
+        private static readonly MethodInfo GetDelegateInfoMethod;
+
 
         [ThreadStatic]
         private static TypeBuildContext typeBuildContext;
@@ -473,9 +533,13 @@ namespace LightProxy
             SetInterceptorMethod = typeof(IProxy).GetMethod("set_Interceptor");
             GetMethodFromHandleMethod = typeof(MethodBase).GetMethod("GetMethodFromHandle", new[] { typeof(RuntimeMethodHandle) });
             InvocationInfoConstructor = typeof(InvocationInfo).GetConstructors()[0];            
-            DelegateInfoConstructor = typeof(DelegateInfo).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)[0];
+            DelegateInfoConstructor = typeof(DelegateInfo).GetConstructors()[0];
+            DelegateInfoCacheConstructor = typeof(DelegateInfoCache).GetConstructors()[0];
             LazyGetValueMethod = typeof(Lazy<Func<object, object[], object>>).GetProperty("Value").GetGetMethod();
-            MethodField = typeof(DelegateInfo).GetField("Method", BindingFlags.NonPublic | BindingFlags.Instance);
+            MethodField = typeof(DelegateInfo).GetField("Method");
+            ProceedDelegateField = typeof(DelegateInfo).GetField("ProceedDelegate");
+            GetTypeFromHandleMethod = typeof(Type).GetMethod("GetTypeFromHandle", BindingFlags.Public | BindingFlags.Static);
+            GetDelegateInfoMethod = typeof(DelegateInfoCache).GetMethod("GetDelegateInfo");
         }
 
         /// <summary>
@@ -488,9 +552,24 @@ namespace LightProxy
         /// additional list of <paramref name="interfaces"/>.</returns>
         public Type GetProxyType(Type baseType, Type[] interfaces)
         {
-            return CreateProxyType(baseType, interfaces);
+            return CreateProxyType(baseType, interfaces, m => true);
         }
-        
+
+        /// <summary>
+        /// Gets a proxy <see cref="Type"/> that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.
+        /// </summary>
+        /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
+        /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
+        /// <param name="methodSelector">A function delegate that determines which methods 
+        /// from the <paramref name="baseType"/> to proxy.</param>
+        /// <returns>A proxy type that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.</returns>
+        public Type GetProxyType(Type baseType, Type[] interfaces, Func<MethodInfo, bool> methodSelector)
+        {
+            return CreateProxyType(baseType, interfaces, m => true);
+        }
+
         /// <summary>
         /// Gets a proxy <see cref="Type"/> that implements the <paramref name="baseType"/> along with the 
         /// additional list of <paramref name="interfaces"/>.
@@ -510,9 +589,9 @@ namespace LightProxy
             throw new NotImplementedException();
         }
 
-        private static Type CreateProxyType(Type baseType, Type[] interfaceTypes)
+        private static Type CreateProxyType(Type baseType, Type[] interfaceTypes, Func<MethodInfo, bool> methodSelector)
         {           
-            InitializeBuildContext(baseType, interfaceTypes);            
+            InitializeBuildContext(baseType, interfaceTypes, methodSelector);            
             ImplementProxyInterface();
             ImplementMethods();
             var type = typeBuildContext.TypeBuilder.CreateType();
@@ -522,14 +601,13 @@ namespace LightProxy
 #endif
             return type;
         }
-
        
-
-        private static void InitializeBuildContext(Type baseType, Type[] interfaceTypes)
+        private static void InitializeBuildContext(Type baseType, Type[] interfaceTypes, Func<MethodInfo, bool> methodSelector)
         {
             typeBuildContext = new TypeBuildContext();
             typeBuildContext.BaseType = baseType;
             typeBuildContext.InterfaceTypes = interfaceTypes;
+            typeBuildContext.MethodSelector = methodSelector;
             typeBuildContext.TypeBuilder = GetTypeBuilder(baseType, interfaceTypes);
             typeBuildContext.TargetField = DefineTargetField(typeBuildContext.TypeBuilder);
             typeBuildContext.InterceptorField = DefineInterceptorField(typeBuildContext.TypeBuilder);
@@ -571,38 +649,23 @@ namespace LightProxy
 
             typeBuildContext.TypeInitializerGenerator.Emit(OpCodes.Ret);                      
         }
-
-        //private static MethodBuilder ImplementMethod_old(MethodInfo targetMethod)
-        //{
-        //    var methodBuilder = GetMethodBuilder(targetMethod);
-        //    var genericTypeParameters = CreateGenericTypeParameters(targetMethod, methodBuilder);
-        //    ParameterInfo[] parameters = targetMethod.GetParameters();
-        //    ILGenerator il = methodBuilder.GetILGenerator();
-        //    PushInterceptorInstance(il);
-        //    PushCurrentMethod(targetMethod, il, genericTypeParameters);
-        //    PushTargetInstance(il);
-        //    LocalBuilder argumentArray = PushArguments(parameters, il);
-        //    il.Emit(OpCodes.Ldnull); // Proceed method
-        //    il.Emit(OpCodes.Newobj, InvocationInfoConstructor);
-        //    CallInvokeMethod(il);
-        //    UpdateRefArguments(parameters, il, argumentArray);
-        //    PushReturnValue(targetMethod, il);
-        //    return methodBuilder;
-        //}
-
+        
         private static void ImplementMethod(MethodInfo targetMethod)
         {            
-            InitializeMethodBuildContext(targetMethod);
-            
+            InitializeMethodBuildContext(targetMethod);            
             PushInterceptorInstance();            
-            PushCurrentMethod();            
-            PushTargetInstance();
-            PushArguments();
-            methodBuildContext.Generator.Emit(OpCodes.Ldnull); // Proceed method
-            methodBuildContext.Generator.Emit(OpCodes.Newobj, InvocationInfoConstructor);
+            PushInvocationInfo();
             CallInvokeMethod();            
             UpdateRefArguments();
             PushReturnValue();                       
+        }
+
+        private static void PushInvocationInfo()
+        {
+            PushCurrentMethod();
+            PushTargetInstance();
+            PushArguments();           
+            methodBuildContext.Generator.Emit(OpCodes.Newobj, InvocationInfoConstructor);
         }
 
         private static void InitializeMethodBuildContext(MethodInfo targetMethod)
@@ -613,43 +676,44 @@ namespace LightProxy
             methodBuildContext.Parameters = targetMethod.GetParameters();
             methodBuildContext.ArgumentArrayField = DeclareArgumentArray();
             methodBuildContext.GenericParameters = CreateGenericTypeParameters(targetMethod, methodBuildContext.MethodBuilder);
+            methodBuildContext.TargetMethod = targetMethod;
             if (targetMethod.IsGenericMethodDefinition)
-            {
-                methodBuildContext.TargetMethod = targetMethod.MakeGenericMethod(methodBuildContext.GenericParameters);
+            {                
+                methodBuildContext.DelegateInfoCacheField = CreateDelegateInfoCacheField(targetMethod);                
             }
             else
             {
-                methodBuildContext.TargetMethod = targetMethod;
+                methodBuildContext.DelegateInfoField = CreateDelegateInfoField(targetMethod);             
             }
         }
 
-
-        //private static void PushInvocationInfo(MethodInfo targetMethod, MethodBuilder methodBuilder, ILGenerator il)
-        //{
-        //    ParameterInfo[] parameters = targetMethod.GetParameters();
-        //    if (targetMethod.IsGenericMethodDefinition)
-        //    {
-        //        PushCurrentGenericMethod(targetMethod, methodBuilder, il);
-        //    }
-        //    else
-        //    {
-        //        FieldBuilder delegateInfofield = UpdateTypeInitializer(targetMethod);
-        //        il.Emit(OpCodes.Ldsfld, delegateInfofield);
-        //        il.Emit(OpCodes.Ldfld, MethodField);
-        //        PushTargetInstance(il);
-        //        LocalBuilder argumentArray = PushArguments(parameters, il);
-        //        il.Emit(OpCodes.Ldnull); // Proceed method
-        //        il.Emit(OpCodes.Newobj, InvocationInfoConstructor);
-        //    }
-        //}
-         
-        private static void PushCurrentGenericMethod(MethodInfo targetMethod, MethodBuilder methodBuilder, ILGenerator il)
+        private static FieldBuilder CreateDelegateInfoCacheField(MethodInfo targetMethod)
         {
-            var genericTypeParameters = CreateGenericTypeParameters(targetMethod, methodBuilder);
-            MethodInfo closedGenericMethod = targetMethod.MakeGenericMethod(genericTypeParameters);
-            PushMethodInfo(closedGenericMethod, il);
+            var fieldBuilder = typeBuildContext.TypeBuilder.DefineField(
+                targetMethod.Name + Guid.NewGuid(),
+                typeof(DelegateInfoCache),
+                FieldAttributes.InitOnly | FieldAttributes.Private | FieldAttributes.Static);
+            var il = typeBuildContext.TypeInitializerGenerator;
+            PushMethodInfo(targetMethod, il);
+            il.Emit(OpCodes.Newobj, DelegateInfoCacheConstructor);
+            il.Emit(OpCodes.Stsfld, fieldBuilder);
+            return fieldBuilder;
         }
 
+
+        private static FieldBuilder CreateDelegateInfoField(MethodInfo targetMethod)
+        {
+            var fieldBuilder = typeBuildContext.TypeBuilder.DefineField(
+                targetMethod.Name + Guid.NewGuid(),
+                typeof(DelegateInfo),
+                FieldAttributes.InitOnly | FieldAttributes.Private | FieldAttributes.Static);
+            var il = typeBuildContext.TypeInitializerGenerator;
+            PushMethodInfo(targetMethod, il);
+            il.Emit(OpCodes.Newobj, DelegateInfoConstructor);
+            il.Emit(OpCodes.Stsfld, fieldBuilder);
+            return fieldBuilder;
+        }
+        
         private static GenericTypeParameterBuilder[] CreateGenericTypeParameters(MethodInfo targetMethod, MethodBuilder methodBuilder)
         {
             if (!targetMethod.IsGenericMethodDefinition)
@@ -686,7 +750,7 @@ namespace LightProxy
                 il.Emit(OpCodes.Ldloc, methodBuildContext.ArgumentArrayField);
                 il.Emit(OpCodes.Ldc_I4, i);
                 il.Emit(OpCodes.Ldarg, i + 1);
-                if (parameters[i].IsOut)
+                if (parameters[i].IsOut || parameterType.IsByRef)
                 {
                     parameterType = parameters[i].ParameterType.GetElementType();
                     if (parameterType.IsValueType)
@@ -748,7 +812,7 @@ namespace LightProxy
             var argumentsArray = methodBuildContext.ArgumentArrayField;
             for (int i = 0; i < parameters.Length; ++i)
             {
-                if (parameters[i].IsOut)
+                if (parameters[i].IsOut || parameters[i].ParameterType.IsByRef)
                 {
                     Type parameterType = parameters[i].ParameterType.GetElementType();
                     il.Emit(OpCodes.Ldarg, i + 1);
@@ -764,24 +828,41 @@ namespace LightProxy
         private static void PushCurrentMethod()
         {
             var il = methodBuildContext.Generator;
-            il.Emit(OpCodes.Ldtoken, methodBuildContext.TargetMethod);
-            il.Emit(OpCodes.Call, GetMethodFromHandleMethod);
-            il.Emit(OpCodes.Castclass, typeof(MethodInfo));
-        }
+            if (methodBuildContext.GenericParameters == null)
+            {
+                il.Emit(OpCodes.Ldsfld, methodBuildContext.DelegateInfoField);
+                il.Emit(OpCodes.Ldfld, MethodField);
+                il.Emit(OpCodes.Ldsfld, methodBuildContext.DelegateInfoField);
+                il.Emit(OpCodes.Ldfld, ProceedDelegateField);
+                il.Emit(OpCodes.Callvirt, LazyGetValueMethod);
+            }
+            else
+            {
+                var typeArrayField = il.DeclareLocal(typeof(Type[]));
+                il.Emit(OpCodes.Ldc_I4, methodBuildContext.GenericParameters.Length);
+                il.Emit(OpCodes.Newarr, typeof(Type));
+                il.Emit(OpCodes.Stloc, typeArrayField);
+                var delegateInfoField = il.DeclareLocal(typeof(DelegateInfo));
+                for (int i = 0; i < methodBuildContext.GenericParameters.Length; i++)
+                {
+                    il.Emit(OpCodes.Ldloc, typeArrayField);
+                    il.Emit(OpCodes.Ldc_I4, i);
+                    il.Emit(OpCodes.Ldtoken, methodBuildContext.GenericParameters[i]);
+                    il.Emit(OpCodes.Call, GetTypeFromHandleMethod);
+                    il.Emit(OpCodes.Stelem_Ref);
+                }
+                il.Emit(OpCodes.Ldsfld, methodBuildContext.DelegateInfoCacheField);
+                il.Emit(OpCodes.Ldloc, typeArrayField);                
+                il.Emit(OpCodes.Call, GetDelegateInfoMethod);
+                il.Emit(OpCodes.Stloc, delegateInfoField);
 
-        private static FieldBuilder UpdateTypeInitializer(MethodInfo targetMethod)
-        {
-            var fieldBuilder = typeBuildContext.TypeBuilder.DefineField(
-                targetMethod.Name + "delegate",
-                typeof(DelegateInfo),
-                FieldAttributes.InitOnly | FieldAttributes.Private | FieldAttributes.Static);
-            var il = typeBuildContext.TypeInitializerGenerator;
-            PushMethodInfo(targetMethod, il);            
-            il.Emit(OpCodes.Newobj, DelegateInfoConstructor);
-            il.Emit(OpCodes.Stsfld, fieldBuilder);
-            return fieldBuilder;
+                il.Emit(OpCodes.Ldloc, delegateInfoField);
+                il.Emit(OpCodes.Ldfld, MethodField);
+                il.Emit(OpCodes.Ldloc, delegateInfoField);
+                il.Emit(OpCodes.Ldfld, ProceedDelegateField);
+                il.Emit(OpCodes.Callvirt, LazyGetValueMethod);                                
+            }            
         }
-
 
         private static void PushMethodInfo(MethodInfo targetMethod, ILGenerator il)
         {
@@ -792,7 +873,9 @@ namespace LightProxy
 
         private static MethodInfo[] GetTargetMethods(Type baseType, IEnumerable<Type> interfaces)
         {
-            return baseType.GetMethods().Concat(interfaces.SelectMany(i => i.GetMethods()))
+            return baseType.GetMethods()
+                .Concat(interfaces.SelectMany(i => i.GetMethods()))
+                .Concat(typeof(object).GetMethods())
                 .Where(m => m.IsVirtual && !m.IsSpecialName).Distinct().ToArray();
         }
 
@@ -925,6 +1008,8 @@ namespace LightProxy
 
             public MethodInfo[] TargetMethods { get; set; }
 
+            public Func<MethodInfo, bool> MethodSelector { get; set; }
+                 
             public PropertyInfo[] TargetProperties { get; set; }
 
             public ILGenerator TypeInitializerGenerator { get; set; }
@@ -945,6 +1030,10 @@ namespace LightProxy
             public ILGenerator Generator { get; set; }
 
             public LocalBuilder ArgumentArrayField { get; set; }
+
+            public FieldBuilder DelegateInfoField { get; set; }
+
+            public FieldBuilder DelegateInfoCacheField { get; set; }
         }
     }    
 }

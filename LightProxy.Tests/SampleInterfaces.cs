@@ -6,6 +6,16 @@
 
 namespace LightProxy.Tests
 {   
+    public interface IClassWithGenericClassContraint<T> where T:class,new()
+    {
+        
+    }
+     
+    public interface IMethodWithGenericConstraint 
+    {
+        void Execute<T>(T value) where T : class, new();
+    }
+
     public interface IMethodWithNoParameters
     {
         void Execute();
@@ -15,7 +25,15 @@ namespace LightProxy.Tests
     {
         void Execute(string value);
     }
-    
+
+    public class MethodWithReferenceTypeParameter : IMethodWithReferenceTypeParameter
+    {
+        public void Execute(string value)
+        {
+            
+        }
+    }
+
     public interface IMethodWithValueTypeParameter
     {
         void Execute(int value);
@@ -28,12 +46,28 @@ namespace LightProxy.Tests
 
     public interface IMethodWithReferenceTypeRefParameter
     {
-        void Execute(ref string value);
+        void Execute(ref ReferenceTypeFoo value);
+    }
+
+    public class MethodWithReferenceTypeRefParameter : IMethodWithReferenceTypeRefParameter
+    {
+        public void Execute(ref ReferenceTypeFoo value)
+        {
+            value =  new ReferenceTypeFoo() { Value = "AnotherValue" };
+        }
     }
 
     public interface IMethodWithValueTypeRefParameter
     {
-        void Execute(ref int value);
+        void Execute(ref ValueTypeFoo value);
+    }
+
+    public class MethodWithValueTypeRefParameter : IMethodWithValueTypeRefParameter
+    {
+        public void Execute(ref ValueTypeFoo value)
+        {
+            value = new ValueTypeFoo { Value = "AnotherValue" };
+        }
     }
 
     public interface IMethodWithValueTypeOutParameter
@@ -60,45 +94,14 @@ namespace LightProxy.Tests
     {
         void Execute<T>(T value);
     }
-
-
-    public class MethodWithReferenceTypeParameter : IMethodWithReferenceTypeParameter
+        
+    public class ReferenceTypeFoo
     {
-        public void Execute(string value)
-        {
-
-        }
+        public string Value { get; set; }
     }
 
-    public class MethodWithReferenceTypeRefParameter : IMethodWithReferenceTypeRefParameter
+    public struct ValueTypeFoo
     {
-        public void Execute(ref string value)
-        {
-            value = "AnotherValue";
-        }
-    }
- 
-    public class MethodWithValueTypeRefParameter : IMethodWithValueTypeRefParameter
-    {
-        public void Execute(ref int value)
-        {
-            value = 52;
-        }
-    }
-    
-    public class MethodWithValueTypeOutParameter : IMethodWithValueTypeOutParameter
-    {
-        public void Execute(out int value)
-        {
-            value = 52;
-        }
-    }
-    
-    public class MethodWithReferenceTypeOutParameter : IMethodWithReferenceTypeOutParameter
-    {
-        public void Execute(out string value)
-        {
-            value = "AnotherValue";
-        }
+        public string Value { get; set; }
     }
 }

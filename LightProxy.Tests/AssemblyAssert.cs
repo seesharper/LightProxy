@@ -25,7 +25,7 @@ namespace SimpleProxy.Tests
                 var exitInfo = string.Format("PEVerify Exit Code: {0}", process.ExitCode);
                 throw new AssertFailedException(string.Format("{0} {1}", exitInfo, processOutput));
             }
-            Console.WriteLine(filename + " is valid");
+            //Console.WriteLine(filename + " is valid");
         }
 
         private static Process CreateProcess(ProcessStartInfo startInformation)

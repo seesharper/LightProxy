@@ -45,56 +45,59 @@
         }
 
         [TestMethod]
-        public void Invoke_MethodWithValueTypeOutParameter_IsInvoked()
+        public void Invoke_MethodWithReferenceTypeOutParameter_ReturnsValueFromTarget()
         {
-            var method = typeof(IMethodWithValueTypeOutParameter).GetMethods()[0];
-            var methodInvoker = GetMethodInvoker();
-            var arguments = new object[] { 42 };
-
-            methodInvoker.Invoke(method, new MethodWithValueTypeOutParameter(), arguments);
-
-            Assert.AreEqual(52, (int)arguments[0]);
-        }
-
-        [TestMethod]
-        public void Invoke_MethodWithReferenceTypeOutParameter_IsInvoked()
-        {
+            var targetMock = new Mock<IMethodWithReferenceTypeOutParameter>();
+            string returnValue = "AnotherValue";
+            targetMock.Setup(t => t.Execute(out returnValue));
             var method = typeof(IMethodWithReferenceTypeOutParameter).GetMethods()[0];
             var methodInvoker = GetMethodInvoker();
             var arguments = new object[] { "SomeValue" };
 
-            methodInvoker.Invoke(method, new MethodWithReferenceTypeOutParameter(), arguments);
+            methodInvoker.Invoke(method, targetMock.Object, arguments);
 
             Assert.AreEqual("AnotherValue", (string)arguments[0]);
         }
 
         [TestMethod]
-        public void Invoke_MethodWithReferenceTypeRefParameter_IsInvoked()
-        {            
-            var method = typeof(IMethodWithReferenceTypeRefParameter).GetMethods()[0];
-            var methodInvoker = GetMethodInvoker();
-            var arguments = new object[] { "SomeValue" };
-
-            methodInvoker.Invoke(method, new MethodWithReferenceTypeRefParameter(), arguments);
-
-            Assert.AreEqual("AnotherValue", (string)arguments[0]);
-        }
-
-        [TestMethod]
-        public void Invoke_MethodWithValueTypeRefParameter_IsInvoked()
+        public void Invoke_MethodWithValueTypeOutParameter_ReturnsValueFromTarget()
         {
-            var method = typeof(IMethodWithValueTypeRefParameter).GetMethods()[0];
+            var targetMock = new Mock<IMethodWithValueTypeOutParameter>();
+            int returnValue = 52;
+            targetMock.Setup(t => t.Execute(out returnValue));
+            var method = typeof(IMethodWithValueTypeOutParameter).GetMethods()[0];
             var methodInvoker = GetMethodInvoker();
             var arguments = new object[] { 42 };
 
-            methodInvoker.Invoke(method, new MethodWithValueTypeRefParameter(), arguments);
+            methodInvoker.Invoke(method, targetMock.Object, arguments);
 
             Assert.AreEqual(52, (int)arguments[0]);
         }
 
+        [TestMethod]
+        public void Invoke_MethodWithReferenceTypeRefParameter_ReturnsValueFromTarget()
+        {                                
+            var method = typeof(IMethodWithReferenceTypeRefParameter).GetMethods()[0];
+            var methodInvoker = GetMethodInvoker();
+            var arguments = new object[] { new ReferenceTypeFoo { Value = "SomeValue" } };
+            
+            methodInvoker.Invoke(method, new MethodWithReferenceTypeRefParameter(), arguments);
+            Assert.AreEqual("AnotherValue", ((ReferenceTypeFoo)arguments[0]).Value);
+        }
 
         [TestMethod]
-        public void Invoke_MethodWithNullableTypeParameter_IsInvoked()
+        public void Invoke_MethodWithValueTypeRefParameter_ReturnsValueFromTarget()
+        {
+            var method = typeof(IMethodWithValueTypeRefParameter).GetMethods()[0];
+            var methodInvoker = GetMethodInvoker();
+            var arguments = new object[] { new ValueTypeFoo() { Value = "SomeValue" } };
+
+            methodInvoker.Invoke(method, new MethodWithValueTypeRefParameter(), arguments);
+            Assert.AreEqual("AnotherValue", ((ValueTypeFoo)arguments[0]).Value);
+        }
+
+        [TestMethod]
+        public void Invoke_MethodWithNullableTypeParameter_PassedValueToTarget()
         {
             var targetMock = new Mock<IMethodWithNullableParameter>();
             var method = typeof(IMethodWithNullableParameter).GetMethods()[0];
@@ -106,7 +109,7 @@
         }
 
         [TestMethod]
-        public void Invoke_MethodWithReferenceTypeReturnValue_IsInvoked()
+        public void Invoke_MethodWithReferenceTypeReturnValue_ReturnsValue()
         {
             var targetMock = new Mock<IMethodWithReferenceTypeReturnValue>();
             targetMock.Setup(t => t.Execute()).Returns("SomeValue");
@@ -119,7 +122,7 @@
         }
 
         [TestMethod]
-        public void Invoke_MethodWithValueTypeReturnValue_IsInvoked()
+        public void Invoke_MethodWithValueTypeReturnValue_ReturnsValue()
         {
             var targetMock = new Mock<IMethodWithValueTypeReturnValue>();
             targetMock.Setup(t => t.Execute()).Returns(42);
@@ -141,14 +144,14 @@
             var method = typeof(IMethodWithReferenceTypeParameter).GetMethods()[0];
             //Measure(() => method.Invoke(target, new object[]{"SomeValue"}), iterations, "Reflection");
 
-            var methodInvoker = GetMethodInvoker();            
+            var methodInvoker = GetMethodInvoker();
             Measure(() => methodInvoker.Invoke(method, target, new object[] { "SomeValue" }), iterations, "MethodInvoker");
-            
+
             Func<object, object[], object> del = GetMethodInvoker().CreateDelegate(method);
-            Measure(() => del(target, new object[]{ "someValue" }), iterations, "CachedDelegate");
-            
-            Lazy<Func<object, object[], object>> lazy = new Lazy<Func<object, object[], object>>(() => methodInvoker.CreateDelegate(method));            
-            Measure(() => lazy.Value(target, new object[]{"somevalue"}), iterations, "LazyDelegate");
+            Measure(() => del(target, new object[] { "someValue" }), iterations, "CachedDelegate");
+
+            Lazy<Func<object, object[], object>> lazy = new Lazy<Func<object, object[], object>>(() => methodInvoker.CreateDelegate(method));
+            Measure(() => lazy.Value(target, new object[] { "someValue" }), iterations, "LazyDelegate");
 
         }
 
