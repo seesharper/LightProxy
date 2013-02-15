@@ -75,6 +75,18 @@
         }
 
         [TestMethod]
+        public void CreateProxy_WithoutMethodSelector_DoesNotInterceptGetHashCode()
+        {
+            var interceptorMock = new Mock<IInterceptor>();
+            var targetMock = new Mock<IMethodWithNoParameters>();
+            var proxy = CreateProxy(targetMock.Object, interceptorMock.Object);
+            proxy.GetHashCode();
+            
+            interceptorMock.Verify(m => m.Invoke(It.Is<InvocationInfo>(ii => ii.Method.Name == "GetHashCode")),Times.Never());
+        }
+
+
+        [TestMethod]
         public void Execute_MethodWithReferenceTypeParameter_PassesValueToInterceptor()
         {
             var interceptorMock = new Mock<IInterceptor>();
@@ -405,9 +417,15 @@
         }
        
         [TestMethod]
-        public void Execute_MethodSelector_InvokesInterceptorOnlyForSelectedMethod()
+        public void Execute_MethodSelectorWithFalsePredicate_DoesNotInvokeInterceptor()
         {
-            
+            var interceptorMock = new Mock<IInterceptor>();
+            var targetMock = new Mock<IMethodWithNoParameters>();
+            var proxy = CreateProxy(targetMock.Object, interceptorMock.Object, mi => false);
+
+            proxy.Execute();
+
+            interceptorMock.Verify(i => i.Invoke(It.IsAny<InvocationInfo>()), Times.Never());
         }
 
 
