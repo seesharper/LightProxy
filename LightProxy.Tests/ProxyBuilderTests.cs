@@ -428,6 +428,13 @@
             interceptorMock.Verify(i => i.Invoke(It.IsAny<InvocationInfo>()), Times.Never());
         }
 
+        [TestMethod]
+        public void GetProxyType_InterfaceWithProperty_ProxyImplementsProperty()
+        {
+            var proxyBuiler = new ProxyBuilder();
+            var proxyType = proxyBuiler.GetProxyType(typeof(IClassWithReferenceTypeProperty), Type.EmptyTypes);
+            Assert.AreEqual(1, proxyType.GetProperties().Length);
+        }
 
 
         private static T CreateProxy<T>(T target, IInterceptor interceptor)

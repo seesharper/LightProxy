@@ -325,8 +325,7 @@ namespace LightProxy
 
         private static void PushOutOrRefArgument(ParameterInfo parameter, ILGenerator il)
         {
-            Type parameterType;
-            parameterType = parameter.ParameterType.GetElementType();
+            Type parameterType = parameter.ParameterType.GetElementType();
             LocalBuilder outValue = il.DeclareLocal(parameterType);
             UnboxOrCast(parameterType, il);
             il.Emit(OpCodes.Stloc, outValue);
@@ -576,6 +575,8 @@ namespace LightProxy
             InitializeBuildContext(baseType, interfaceTypes, methodSelector);            
             ImplementProxyInterface();
             ImplementMethods();
+            ImplementProperties();
+            typeBuildContext.TypeInitializerGenerator.Emit(OpCodes.Ret);   
             var type = typeBuildContext.TypeBuilder.CreateType();
             
 #if DEBUG
@@ -583,7 +584,28 @@ namespace LightProxy
 #endif
             return type;
         }
-       
+
+        private static void ImplementProperties()
+        {
+            foreach (var property in typeBuildContext.TargetProperties)
+            {
+                var propertyBuilder = GetPropertyBuilder(property);
+                MethodInfo setMethod = property.GetSetMethod();
+                if (setMethod != null)
+                {
+                    ImplementMethod(setMethod);
+                    propertyBuilder.SetSetMethod(methodBuildContext.MethodBuilder);
+                }
+                MethodInfo getMethod = property.GetGetMethod();
+                
+                if (getMethod != null)
+                {
+                    ImplementMethod(getMethod);
+                    propertyBuilder.SetGetMethod(methodBuildContext.MethodBuilder);
+                }
+            }
+        }
+
         private static void InitializeBuildContext(Type baseType, Type[] interfaceTypes, Func<MethodInfo, bool> methodSelector)
         {
             typeBuildContext = new TypeBuildContext();
@@ -624,29 +646,24 @@ namespace LightProxy
 
         private static void ImplementMethods()
         {
-            foreach (MethodInfo method in GetMethodsToIntercept())
+            foreach (var targetMethod in typeBuildContext.TargetMethods)
+            {
+                ImplementMethod(targetMethod);
+            }                                                       
+        }
+
+        private static void ImplementMethod(MethodInfo method)
+        {
+            if (typeBuildContext.MethodSelector(method))
             {
                 ImplementInterceptedMethod(method);
             }
-
-            foreach (MethodInfo method in GetMethodsToPassThrough())
+            else
             {
                 ImplementPassThroughMethod(method);
             }
-
-            typeBuildContext.TypeInitializerGenerator.Emit(OpCodes.Ret);                      
         }
-
-        private static IEnumerable<MethodInfo> GetMethodsToIntercept()
-        {
-            return typeBuildContext.TargetMethods.Where(m => typeBuildContext.MethodSelector(m));
-        }
-
-        private static IEnumerable<MethodInfo> GetMethodsToPassThrough()
-        {
-            return typeBuildContext.TargetMethods.Where(m => !typeBuildContext.MethodSelector(m));
-        }
-
+       
         private static void ImplementInterceptedMethod(MethodInfo targetMethod)
         {            
             InitializeMethodBuildContext(targetMethod);            
@@ -888,7 +905,7 @@ namespace LightProxy
             return baseType.GetMethods()
                 .Concat(interfaces.SelectMany(i => i.GetMethods()))
                 .Concat(typeof(object).GetMethods())
-                .Where(m => m.IsVirtual && !m.IsSpecialName).Distinct().ToArray();
+                .Where(m => m.IsVirtual && !m.IsSpecialName).Distinct().ToArray();            
         }
 
         private static PropertyInfo[] GetTargetProperties(Type baseType, IEnumerable<Type> interfaces)
@@ -976,6 +993,14 @@ namespace LightProxy
 
             return methodBuilder;
         }
+
+        private static PropertyBuilder GetPropertyBuilder(PropertyInfo property)
+        {
+            var propertyBuilder = typeBuildContext.TypeBuilder.DefineProperty(
+                  property.Name, property.Attributes, property.PropertyType, new[] { property.PropertyType });
+            return propertyBuilder;
+        }
+
 
         private static AssemblyBuilder GetAssemblyBuilder()
         {

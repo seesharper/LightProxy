@@ -10,7 +10,17 @@ namespace LightProxy.Tests
     {
         
     }
-     
+    
+    public interface IClassWithReferenceTypeProperty
+    {
+        string Value { get; set; }
+    }
+
+    public interface IClassWithValueTypeProperty
+    {
+        string Value { get; set; }
+    }
+    
     public interface IMethodWithGenericConstraint 
     {
         void Execute<T>(T value) where T : class, new();
