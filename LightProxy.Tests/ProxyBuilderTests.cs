@@ -443,7 +443,7 @@
             var proxyType = proxyBuiler.GetProxyType(typeof(IClassWithEvent), Type.EmptyTypes);
             Assert.AreEqual(1, proxyType.GetEvents().Length);
         }
-
+       
         private static T CreateProxy<T>(T target, IInterceptor interceptor)
         {
             var proxyFactory = new ProxyFactory();
