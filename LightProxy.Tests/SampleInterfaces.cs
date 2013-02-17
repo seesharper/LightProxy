@@ -18,6 +18,11 @@ namespace LightProxy.Tests
         string Value { get; set; }
     }
 
+    public class ClassWithReferenceTypeProperty : IClassWithReferenceTypeProperty
+    {
+        string IClassWithReferenceTypeProperty.Value { get; set; }
+    }
+
     public interface IClassWithValueTypeProperty
     {
         string Value { get; set; }
@@ -26,6 +31,21 @@ namespace LightProxy.Tests
     public interface IClassWithEvent
     {
         event EventHandler<EventArgs> SomeEvent;
+    }
+
+    public class ClassWithEvent : IClassWithEvent
+    {
+        event EventHandler<EventArgs> IClassWithEvent.SomeEvent
+        {
+            add
+            {
+                throw new NotImplementedException();
+            }
+            remove
+            {
+                throw new NotImplementedException();
+            }
+        }
     }
 
     public interface IMethodWithGenericConstraint 
