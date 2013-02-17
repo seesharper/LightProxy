@@ -5,7 +5,9 @@
 [module: System.Diagnostics.CodeAnalysis.SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1600:ElementsMustBeDocumented", Justification = "All public members are documented.")]
 
 namespace LightProxy.Tests
-{   
+{
+    using System;
+
     public interface IClassWithGenericClassContraint<T> where T:class,new()
     {
         
@@ -21,6 +23,11 @@ namespace LightProxy.Tests
         string Value { get; set; }
     }
     
+    public interface IClassWithEvent
+    {
+        event EventHandler<EventArgs> SomeEvent;
+    }
+
     public interface IMethodWithGenericConstraint 
     {
         void Execute<T>(T value) where T : class, new();

@@ -436,6 +436,13 @@
             Assert.AreEqual(1, proxyType.GetProperties().Length);
         }
 
+        [TestMethod]
+        public void GetProxyType_InterfaceWithEvent_ProxyImplementsEvent()
+        {
+            var proxyBuiler = new ProxyBuilder();
+            var proxyType = proxyBuiler.GetProxyType(typeof(IClassWithEvent), Type.EmptyTypes);
+            Assert.AreEqual(1, proxyType.GetEvents().Length);
+        }
 
         private static T CreateProxy<T>(T target, IInterceptor interceptor)
         {

@@ -576,6 +576,7 @@ namespace LightProxy
             ImplementProxyInterface();
             ImplementMethods();
             ImplementProperties();
+            ImplementEvents();
             typeBuildContext.TypeInitializerGenerator.Emit(OpCodes.Ret);   
             var type = typeBuildContext.TypeBuilder.CreateType();
             
@@ -606,6 +607,22 @@ namespace LightProxy
             }
         }
 
+        private static void ImplementEvents()
+        {
+            foreach (var targetEvent in typeBuildContext.TargetEvents)
+            {
+                var eventBuilder = GetEventBuilder(targetEvent);
+                MethodInfo addMethod = targetEvent.GetAddMethod();
+                
+                ImplementMethod(addMethod);
+                eventBuilder.SetAddOnMethod(methodBuildContext.MethodBuilder);
+
+                MethodInfo removeMethod = targetEvent.GetRemoveMethod();
+                ImplementMethod(removeMethod);
+                eventBuilder.SetRemoveOnMethod(methodBuildContext.MethodBuilder);
+            }
+        }
+
         private static void InitializeBuildContext(Type baseType, Type[] interfaceTypes, Func<MethodInfo, bool> methodSelector)
         {
             typeBuildContext = new TypeBuildContext();
@@ -617,6 +634,7 @@ namespace LightProxy
             typeBuildContext.InterceptorField = DefineInterceptorField(typeBuildContext.TypeBuilder);
             typeBuildContext.TargetMethods = GetTargetMethods(baseType, interfaceTypes);
             typeBuildContext.TargetProperties = GetTargetProperties(baseType, interfaceTypes);
+            typeBuildContext.TargetEvents = GetTargetEvents(baseType, interfaceTypes);
             typeBuildContext.TypeInitializerGenerator = typeBuildContext.TypeBuilder.DefineTypeInitializer().GetILGenerator();
         }
 
@@ -911,6 +929,11 @@ namespace LightProxy
         private static PropertyInfo[] GetTargetProperties(Type baseType, IEnumerable<Type> interfaces)
         {
             return baseType.GetProperties().Concat(interfaces.SelectMany(i => i.GetProperties())).Distinct().ToArray();
+        }
+
+        private static EventInfo[] GetTargetEvents(Type baseType, IEnumerable<Type> interfaces)
+        {
+            return baseType.GetEvents().Concat(interfaces.SelectMany(i => i.GetEvents())).Distinct().ToArray();
         }           
 
         private static void ImplementGetInterceptorMethod()
@@ -1001,6 +1024,11 @@ namespace LightProxy
             return propertyBuilder;
         }
 
+        private static EventBuilder GetEventBuilder(EventInfo eventInfo)
+        {
+            var eventBuilder = typeBuildContext.TypeBuilder.DefineEvent(eventInfo.Name, eventInfo.Attributes, eventInfo.EventHandlerType);
+            return eventBuilder;
+        }
 
         private static AssemblyBuilder GetAssemblyBuilder()
         {
@@ -1056,6 +1084,8 @@ namespace LightProxy
                  
             public PropertyInfo[] TargetProperties { get; set; }
 
+            public EventInfo[] TargetEvents { get; set; }
+
             public ILGenerator TypeInitializerGenerator { get; set; }
 
             public string GetUniqueMemberName(string memberName)
@@ -1071,7 +1101,7 @@ namespace LightProxy
                 return memberName + count;
             }
 
-            // What about events?
+            
         }
 
         private class MethodBuildContext
