@@ -169,9 +169,9 @@
         }
 
 
-        protected virtual IMethodInvoker GetMethodInvoker()
+        protected virtual IMethodBuilder GetMethodInvoker()
         {
-            return new MethodInvoker(() => new DynamicMethodSkeleton());
+            return new MethodBuilder(() => new DynamicMethodSkeleton());
         }
     }
 }

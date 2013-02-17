@@ -3,8 +3,7 @@
 [module: System.Diagnostics.CodeAnalysis.SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1402:FileMayOnlyContainASingleClass", Justification = "Single source file deployment.")]
 [module: System.Diagnostics.CodeAnalysis.SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Performance")]
 [module: System.Diagnostics.CodeAnalysis.SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1633:FileMustHaveHeader", Justification = "Custom header.")]
-[module: System.Diagnostics.CodeAnalysis.SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1600:ElementsMustBeDocumented", Justification = "All public members are documented.")]
-[module: System.Diagnostics.CodeAnalysis.SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1600:ElementsMustBeDocumented", Justification = "All public members are documented.")]
+//[module: System.Diagnostics.CodeAnalysis.SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1600:ElementsMustBeDocumented", Justification = "All public members are documented.")]
 
 namespace LightProxy
 {
@@ -143,7 +142,7 @@ namespace LightProxy
     /// <summary>
     /// Represents a class that is capable of invoking a method.
     /// </summary>
-    public interface IMethodInvoker
+    public interface IMethodBuilder
     {
         /// <summary>
         /// Invokes the <paramref name="method"/> on the target <paramref name="instance"/> 
@@ -203,7 +202,7 @@ namespace LightProxy
 
     public class DynamicMethodSkeleton : IMethodSkeleton
     {
-        private readonly DynamicMethod dynamicMethod = new DynamicMethod("DynamicMethod", typeof(object), new[] { typeof(object), typeof(object[]) }, typeof(MethodInvoker).Module);
+        private readonly DynamicMethod dynamicMethod = new DynamicMethod("DynamicMethod", typeof(object), new[] { typeof(object), typeof(object[]) }, typeof(MethodBuilder).Module);
 
         /// <summary>
         /// Gets the <see cref="ILGenerator"/> used to emit the method body.
@@ -226,17 +225,15 @@ namespace LightProxy
 
     public static class DelegateBuilder
     {
-        private static MethodInvoker invoker = new MethodInvoker(() => new DynamicMethodSkeleton());
+        private static MethodBuilder builder = new MethodBuilder(() => new DynamicMethodSkeleton());
 
         public static Func<object, object[], object> CreateDelegate(MethodInfo methodInfo)
         {
-            return invoker.CreateDelegate(methodInfo);
+            return builder.CreateDelegate(methodInfo);
         }
-
     }
 
-
-    public class MethodInvoker : IMethodInvoker
+    public class MethodBuilder : IMethodBuilder
     {
         private static readonly Dictionary<IntPtr, Func<object, object[], object>> DelegateCache 
             = new Dictionary<IntPtr, Func<object, object[], object>>();
@@ -245,11 +242,10 @@ namespace LightProxy
             = new ConcurrentDictionary<MethodInfo, Func<object, object[], object>>();
 
         private static readonly object SyncRoot = new object();
-
         
         private readonly Func<IMethodSkeleton> methodSkeletonFactory = () => new DynamicMethodSkeleton();
                
-        public MethodInvoker(Func<IMethodSkeleton> methodSkeletonFactory)
+        public MethodBuilder(Func<IMethodSkeleton> methodSkeletonFactory)
         {
             this.methodSkeletonFactory = methodSkeletonFactory;
         }
@@ -597,6 +593,7 @@ namespace LightProxy
                     ImplementMethod(setMethod);
                     propertyBuilder.SetSetMethod(methodBuildContext.MethodBuilder);
                 }
+
                 MethodInfo getMethod = property.GetGetMethod();
                 
                 if (getMethod != null)
@@ -626,15 +623,14 @@ namespace LightProxy
         private static void InitializeBuildContext(Type baseType, Type[] interfaceTypes, Func<MethodInfo, bool> methodSelector)
         {
             typeBuildContext = new TypeBuildContext();
-            typeBuildContext.BaseType = baseType;
-            typeBuildContext.InterfaceTypes = interfaceTypes;
+            typeBuildContext.BaseType = baseType;            
             typeBuildContext.MethodSelector = methodSelector;
             typeBuildContext.TypeBuilder = GetTypeBuilder(baseType, interfaceTypes);
             typeBuildContext.TargetField = DefineTargetField(typeBuildContext.TypeBuilder, baseType);
             typeBuildContext.InterceptorField = DefineInterceptorField(typeBuildContext.TypeBuilder);
             typeBuildContext.TargetMethods = GetTargetMethods(baseType, interfaceTypes);
-            typeBuildContext.TargetProperties = GetTargetProperties(baseType, interfaceTypes);
-            typeBuildContext.TargetEvents = GetTargetEvents(baseType, interfaceTypes);
+            typeBuildContext.TargetProperties = GetTargetProperties(baseType);
+            typeBuildContext.TargetEvents = GetTargetEvents(baseType);
             typeBuildContext.TypeInitializerGenerator = typeBuildContext.TypeBuilder.DefineTypeInitializer().GetILGenerator();
         }
 
@@ -694,7 +690,7 @@ namespace LightProxy
 
         private static void ImplementPassThroughMethod(MethodInfo targetMethod)
         {
-            MethodBuilder methodBuilder = GetMethodBuilder(targetMethod);
+            System.Reflection.Emit.MethodBuilder methodBuilder = GetMethodBuilder(targetMethod);
             ILGenerator il = methodBuilder.GetILGenerator();
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldfld, typeBuildContext.TargetField);            
@@ -760,7 +756,7 @@ namespace LightProxy
             return fieldBuilder;
         }
         
-        private static GenericTypeParameterBuilder[] CreateGenericTypeParameters(MethodInfo targetMethod, MethodBuilder methodBuilder)
+        private static GenericTypeParameterBuilder[] CreateGenericTypeParameters(MethodInfo targetMethod, System.Reflection.Emit.MethodBuilder methodBuilder)
         {
             if (!targetMethod.IsGenericMethodDefinition)
             {
@@ -921,19 +917,21 @@ namespace LightProxy
         private static MethodInfo[] GetTargetMethods(Type baseType, IEnumerable<Type> interfaces)
         {
             return baseType.GetMethods()
-                .Concat(interfaces.SelectMany(i => i.GetMethods()))
-                .Concat(typeof(object).GetMethods())
-                .Where(m => m.IsVirtual && !m.IsSpecialName).Distinct().ToArray();            
+                    .Where(m => m.IsVirtual && !m.IsSpecialName)
+                    .Concat(typeof(object).GetMethods().Where(m => m.IsVirtual))
+                    .Concat(interfaces.SelectMany(i => i.GetMethods().Where(m => m.IsVirtual)))
+                    .Distinct()
+                    .ToArray();                       
         }
 
-        private static PropertyInfo[] GetTargetProperties(Type baseType, IEnumerable<Type> interfaces)
+        private static PropertyInfo[] GetTargetProperties(Type baseType)
         {
-            return baseType.GetProperties().Concat(interfaces.SelectMany(i => i.GetProperties())).Distinct().ToArray();
+            return baseType.GetProperties().ToArray();
         }
 
-        private static EventInfo[] GetTargetEvents(Type baseType, IEnumerable<Type> interfaces)
+        private static EventInfo[] GetTargetEvents(Type baseType)
         {
-            return baseType.GetEvents().Concat(interfaces.SelectMany(i => i.GetEvents())).Distinct().ToArray();
+            return baseType.GetEvents().ToArray();
         }           
 
         private static void ImplementGetInterceptorMethod()
@@ -988,7 +986,7 @@ namespace LightProxy
             methodBuildContext.Generator.Emit(OpCodes.Ldfld, typeBuildContext.InterceptorField);
         }
 
-        private static MethodBuilder GetMethodBuilder(MethodInfo targetMethod)
+        private static System.Reflection.Emit.MethodBuilder GetMethodBuilder(MethodInfo targetMethod)
         {
             MethodAttributes methodAttributes = targetMethod.Attributes;
 
@@ -1003,7 +1001,7 @@ namespace LightProxy
                 }
             }
 
-            MethodBuilder methodBuilder = typeBuildContext.TypeBuilder.DefineMethod(
+            System.Reflection.Emit.MethodBuilder methodBuilder = typeBuildContext.TypeBuilder.DefineMethod(
                                             methodName, 
                                             methodAttributes,
                                             targetMethod.ReturnType,
@@ -1066,7 +1064,7 @@ namespace LightProxy
 
         private class TypeBuildContext
         {
-            private Dictionary<string, int> memberNames = new Dictionary<string, int>();
+            private readonly Dictionary<string, int> memberNames = new Dictionary<string, int>();
             
             public FieldBuilder TargetField { get; set; }
 
@@ -1075,9 +1073,7 @@ namespace LightProxy
             public TypeBuilder TypeBuilder { get; set; }
 
             public Type BaseType { get; set; }
-
-            public Type[] InterfaceTypes { get; set; }
-
+            
             public MethodInfo[] TargetMethods { get; set; }
 
             public Func<MethodInfo, bool> MethodSelector { get; set; }
@@ -1099,14 +1095,12 @@ namespace LightProxy
 
                 memberNames[memberName] = count + 1;
                 return memberName + count;
-            }
-
-            
+            }            
         }
 
         private class MethodBuildContext
         {                        
-            public MethodBuilder MethodBuilder { get; set; }
+            public System.Reflection.Emit.MethodBuilder MethodBuilder { get; set; }
 
             public MethodInfo TargetMethod { get; set; }
 
