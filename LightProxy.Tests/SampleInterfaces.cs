@@ -8,9 +8,9 @@ namespace LightProxy.Tests
 {
     using System;
 
-    public interface IClassWithGenericClassContraint<T> where T:class,new()
+    public interface IClassWithGenericClassContraint<T>
+        where T : class, new()
     {
-        
     }
     
     public interface IClassWithReferenceTypeProperty
