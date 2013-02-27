@@ -62,7 +62,8 @@ namespace LightProxy
         /// </summary>
         /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
         /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
-        /// <param name="targetFactory">A function delegate use to create the target instance.</param>
+        /// <param name="targetFactory">An <see cref="ITargetFactory"/> that is responsible for creating the proxy target.</param>
+        /// <param name="interceptorFactory">An <see cref="IInterceptorFactory"/> that is responsible for creating an <see cref="IInterceptor"/> instance.</param>
         /// <returns>A proxy type that implements the <paramref name="baseType"/> along with the 
         /// additional list of <paramref name="interfaces"/>.</returns>
         /// <remarks>
@@ -70,7 +71,26 @@ namespace LightProxy
         /// created when the proxy type itself is created. The <paramref name="targetFactory"/> is implemented 
         /// as a static field member of the proxy type and invoked by the constructor.
         /// </remarks>
-        Type GetProxyType(Type baseType, Type[] interfaces, Func<object> targetFactory);
+        Type GetProxyType(Type baseType, Type[] interfaces, ITargetFactory targetFactory, IInterceptorFactory interceptorFactory);
+
+        /// <summary>
+        /// Gets a proxy <see cref="Type"/> that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.
+        /// </summary>
+        /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
+        /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
+        /// <param name="targetFactory">An <see cref="ITargetFactory"/> that is responsible for creating the proxy target.</param>
+        /// <param name="methodSelector">A function delegate that determines which methods 
+        /// from the <paramref name="baseType"/> to proxy.</param>
+        /// <returns>A proxy type that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.</returns>
+        /// <remarks>
+        /// The <paramref name="targetFactory"/> allows for lazy proxies that will have their target 
+        /// created when the proxy type itself is created. The <paramref name="targetFactory"/> is implemented 
+        /// as a static field member of the proxy type and invoked by the constructor.
+        /// </remarks>
+        Type GetProxyType(Type baseType, Type[] interfaces, ITargetFactory targetFactory, Func<MethodInfo, bool> methodSelector);
+
     }
 
     /// <summary>
@@ -103,7 +123,58 @@ namespace LightProxy
         /// <returns>A new object that implements the <paramref name="baseType"/> along with the 
         /// additional list of <paramref name="interfaces"/>.</returns>
         object CreateProxy(Type baseType, Type[] interfaces, object target, IInterceptor interceptor, Func<MethodInfo, bool> methodSelector);
+
+        /// <summary>
+        /// Creates a proxy object that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.
+        /// </summary>
+        /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
+        /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
+        /// <param name="targetFactory">An <see cref="ITargetFactory"/> that is responsible for creating the proxy target.</param>
+        /// <param name="interceptor">The <see cref="IInterceptor"/> used to intercept method calls.</param>
+        /// <returns>A new object that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.</returns>
+        object CreateProxy(Type baseType, Type[] interfaces, ITargetFactory targetFactory, IInterceptor interceptor);
+
+        /// <summary>
+        /// Creates a proxy object that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.
+        /// </summary>
+        /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
+        /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
+        /// <param name="targetFactory">An <see cref="ITargetFactory"/> that is responsible for creating the proxy target.</param>
+        /// <param name="interceptor">The <see cref="IInterceptor"/> used to intercept method calls.</param>
+        /// <param name="methodSelector">A function delegate that determines which methods 
+        /// from the <paramref name="baseType"/> to proxy.</param>
+        /// <returns>A new object that implements the <paramref name="baseType"/> along with the 
+        /// additional list of <paramref name="interfaces"/>.</returns>
+        object CreateProxy(Type baseType, Type[] interfaces, ITargetFactory targetFactory, IInterceptor interceptor, Func<MethodInfo, bool> methodSelector);
     }
+
+    /// <summary>
+    /// Represents a class that is used to create a target for a proxy instance.
+    /// </summary>
+    public interface ITargetFactory
+    {
+        /// <summary>
+        /// Gets the target instance used as the proxy target.
+        /// </summary>        
+        /// <returns>A new instance used as the proxy target.</returns>
+        object GetTarget();
+    }
+
+    /// <summary>
+    /// Represents a class that is used to create an <see cref="IInterceptor"/> for a proxy instance.
+    /// </summary>
+    public interface IInterceptorFactory
+    {
+        /// <summary>
+        /// Gets the <see cref="IInterceptor"/> instance used to intercept method calls made to the proxy.
+        /// </summary>
+        /// <returns>An <see cref="IInterceptor"/> instance.</returns>
+        IInterceptor GetInterceptor();
+    }
+
 
     /// <summary>
     /// Implemented by all proxy types.
@@ -466,6 +537,16 @@ namespace LightProxy
             return CreateProxyInstance(target, interceptor, proxyType);
         }
 
+        public object CreateProxy(Type baseType, Type[] interfaces, ITargetFactory targetFactory, IInterceptor interceptor)
+        {
+            throw new NotImplementedException();
+        }
+
+        public object CreateProxy(Type baseType, Type[] interfaces, ITargetFactory targetFactory, IInterceptor interceptor, Func<MethodInfo, bool> methodSelector)
+        {
+            throw new NotImplementedException();
+        }
+
         private static object CreateProxyInstance(object target, IInterceptor interceptor, Type proxyType)
         {
             var proxy = (IProxy)Activator.CreateInstance(proxyType);
@@ -553,7 +634,8 @@ namespace LightProxy
         /// </summary>
         /// <param name="baseType">The base <see cref="Type"/> that the proxy will inherit from.</param>
         /// <param name="interfaces">A list of additional interfaces that the proxy type will implement.</param>
-        /// <param name="targetFactory">A function delegate use to create the target instance.</param>
+        /// <param name="targetFactory">An <see cref="ITargetFactory"/> that is responsible for creating the proxy target.</param>
+        /// <param name="interceptorFactory">An <see cref="IInterceptorFactory"/> that is responsible for creating an <see cref="IInterceptor"/> instance.</param>
         /// <returns>A proxy type that implements the <paramref name="baseType"/> along with the 
         /// additional list of <paramref name="interfaces"/>.</returns>
         /// <remarks>
@@ -561,21 +643,63 @@ namespace LightProxy
         /// created when the proxy type itself is created. The <paramref name="targetFactory"/> is implemented 
         /// as a static field member of the proxy type and invoked by the constructor.
         /// </remarks>
-        public Type GetProxyType(Type baseType, Type[] interfaces, Func<object> targetFactory)
+        public Type GetProxyType(Type baseType, Type[] interfaces, ITargetFactory targetFactory, IInterceptorFactory interceptorFactory)
         {
-            throw new NotImplementedException();
+            return GetProxyType(baseType, interfaces, targetFactory, m => m.DeclaringType != typeof(object));
+        }
+
+        private static void AssignTargetFactory(Type proxyType, ITargetFactory targetFactory)
+        {
+            const BindingFlags Flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.SetField;
+            proxyType.InvokeMember("TargetFactory", Flags, null, null, new object[] { targetFactory });                
+        }
+
+        private static FieldBuilder DefineTargetFactoryField()
+        {
+            const FieldAttributes Attributes = FieldAttributes.Public | FieldAttributes.Static;
+            return typeBuildContext.TypeBuilder.DefineField("TargetFactory", typeof(ITargetFactory), Attributes);
+        }
+
+        private static void ImplementParameterlessConstructor(FieldBuilder targetFactoryField)
+        {
+            var typeBuilder = typeBuildContext.TypeBuilder;
+            var constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName, CallingConventions.Standard, Type.EmptyTypes);
+            ILGenerator il = constructorBuilder.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes));
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldsfld, targetFactoryField);
+            il.Emit(OpCodes.Callvirt, typeof(ITargetFactory).GetMethod("GetTarget"));
+            il.Emit(OpCodes.Castclass, typeBuildContext.BaseType);
+            il.Emit(OpCodes.Stfld, typeBuildContext.TargetField);
+            il.Emit(OpCodes.Ret);
+
+        }
+
+        public Type GetProxyType(Type baseType, Type[] interfaces, ITargetFactory targetFactory, Func<MethodInfo, bool> methodSelector)
+        {
+            InitializeBuildContext(baseType, interfaces, methodSelector);
+            ImplementParameterlessConstructor(DefineTargetFactoryField());
+            Type proxyType = ImplementProxy();
+            AssignTargetFactory(proxyType, targetFactory);
+            return proxyType;
         }
 
         private static Type CreateProxyType(Type baseType, Type[] interfaceTypes, Func<MethodInfo, bool> methodSelector)
-        {           
-            InitializeBuildContext(baseType, interfaceTypes, methodSelector);            
+        {
+            InitializeBuildContext(baseType, interfaceTypes, methodSelector);
+            return ImplementProxy();
+        }
+
+        private static Type ImplementProxy()
+        {
             ImplementProxyInterface();
             ImplementMethods();
             ImplementProperties();
             ImplementEvents();
-            typeBuildContext.TypeInitializerGenerator.Emit(OpCodes.Ret);   
+            typeBuildContext.TypeInitializerGenerator.Emit(OpCodes.Ret);
             var type = typeBuildContext.TypeBuilder.CreateType();
-            
+
 #if DEBUG
             ((AssemblyBuilder)typeBuildContext.TypeBuilder.Assembly).Save("ProxyAssembly.dll");
 #endif
@@ -633,6 +757,8 @@ namespace LightProxy
             typeBuildContext.TargetEvents = GetTargetEvents(baseType);
             typeBuildContext.TypeInitializerGenerator = typeBuildContext.TypeBuilder.DefineTypeInitializer().GetILGenerator();
         }
+
+        
 
         private static FieldBuilder DefineTargetField(TypeBuilder typeBuilder, Type baseType)
         {

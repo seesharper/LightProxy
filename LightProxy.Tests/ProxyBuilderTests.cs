@@ -441,9 +441,23 @@
         {
             var proxyBuiler = new ProxyBuilder();
             var proxyType = proxyBuiler.GetProxyType(typeof(IClassWithEvent), Type.EmptyTypes);
-            Assert.AreEqual(1, proxyType.GetEvents().Length);
+            Assert.AreEqual(1, proxyType.GetEvents().Length);            
         }
-       
+
+        //[TestMethod]
+        //public void GetProxyType_TargetFactory_InvokesTargetFactoryWhenProxyInstanceIsCreated()
+        //{
+        //    var proxyBuiler = new ProxyBuilder();
+        //    var interceptorMock = new Mock<IInterceptor>();
+        //    var targetMock = new Mock<IMethodWithNoParameters>();
+        //    var targetFactoryMock = new Mock<ITargetFactory>();
+        //    targetFactoryMock.Setup(f => f.GetTarget()).Returns(targetMock.Object);
+
+        //    proxyBuiler.GetProxyType(typeof(IMethodWithNoParameters), Type.EmptyTypes, targetFactoryMock.Object);
+
+        //}
+
+
         private static T CreateProxy<T>(T target, IInterceptor interceptor)
         {
             var proxyFactory = new ProxyFactory();
