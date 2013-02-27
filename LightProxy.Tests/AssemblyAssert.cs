@@ -7,7 +7,6 @@ namespace SimpleProxy.Tests
 {
     using System.Diagnostics;
     using System.IO;
-
     using Microsoft.Build.Utilities;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
 
