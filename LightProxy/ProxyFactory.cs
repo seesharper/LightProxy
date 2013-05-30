@@ -247,7 +247,7 @@ namespace LightProxy
             Method = method;
             Target = target;
             Arguments = arguments;
-            Proceed = proceed;
+            Proceed = () => proceed(target, arguments);
         }
 
         /// <summary>
@@ -264,11 +264,11 @@ namespace LightProxy
         /// Gets the arguments currently being passed to the target method.
         /// </summary>
         public object[] Arguments { get; private set; }
-
+        
         /// <summary>
         /// Gets a function delegate used to invoke the target method.
         /// </summary>
-        public Func<object, object[], object> Proceed { get; private set; }
+        public Func<object> Proceed { get; private set; }
     }  
 
     public class DynamicMethodSkeleton : IMethodSkeleton
@@ -1254,6 +1254,29 @@ namespace LightProxy
         public int GetHashCode(Type[] types)
         {
             return types.Aggregate(0, (current, type) => current ^ type.GetHashCode());
+        }
+    }
+
+    
+    public class ProxyDefinition
+    {
+        private readonly Type baseType;
+
+        private readonly ITargetFactory targetFactory;
+
+        private readonly IInterceptorFactory[] interceptorFactories;
+
+        public ProxyDefinition(
+            Type baseType, ITargetFactory targetFactory, params IInterceptorFactory[] interceptorFactories)
+        {
+            this.baseType = baseType;
+            this.targetFactory = targetFactory;
+            this.interceptorFactories = interceptorFactories;
+        }
+
+        public void Implement(Type interfaceType, IInterceptorFactory interceptorFactory)
+        {
+            
         }
     }
 }
